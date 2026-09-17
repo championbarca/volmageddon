@@ -1,0 +1,39 @@
+# Phase 1 core universe — the names you already trade.
+# Add more liquid underlyings here as you extend past the curated core list;
+# no code changes needed, just add a symbol.
+underlyings:
+  - SPY
+  - QQQ
+  - IWM
+  - XBI
+  - SOXX
+
+# Commented out — uncomment to widen the pull once Phase 1 is validated on the core five.
+#  - DIA
+#  - GLD
+#  - TLT
+#  - HYG
+#  - VXX
+
+# Cash-settled index options — a separate list because they need a different IBKR
+# contract type (Index, not Stock) and different option routing (CBOE, not SMART).
+# See README "Index support" for the caveats on exchange codes.
+indices:
+  - SPX
+  - NDX
+  - VIX
+
+# ThetaData-only OPRA roots. ThetaData keys options by root rather than by
+# underlying, and the SPX weeklies (SPXW) are a separate root holding most of
+# the SPX contract count — 15.5k vs 2.9k for the SPX root. IBKR models the same
+# contracts as a trading class under SPX, so these are not valid IBKR symbols
+# and are skipped by the IBKR poller.
+thetadata_extra_roots:
+  - SPXW
+
+# IBKR futures — daily bars only for now (forward / hedge / VIX term). Not polled
+# as option chains. ContFuture on CME/CFE.
+futures:
+  - ES
+  - NQ
+  - VX

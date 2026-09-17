@@ -1,0 +1,9 @@
+ib_async>=1.0.3
+requests>=2.31
+polars>=1.9
+pyarrow>=17.0
+numpy>=1.26
+scipy>=1.11
+pandas_market_calendars>=5.0
+python-dotenv>=1.0
+PyYAML>=6.0
