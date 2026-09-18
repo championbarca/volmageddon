@@ -28,9 +28,9 @@ end of their group; never renumber.
 | `deferred` | Deliberately postponed — reason recorded, usually a dependency or model-governance concern. |
 | `blocked` | Cannot proceed; external constraint (subscription tier, missing feed). |
 
-Current totals across 93 tracked features: **12 done · 12 partial · 63 todo · 5 deferred · 1 blocked**.
-That is 12% complete by count, and the completed portion is almost entirely data collection —
-sections `SIG` through `UI` are untouched.
+Current totals across 93 tracked features: **15 done · 19 partial · 53 todo · 5 deferred · 1 blocked**.
+That is 16% complete by count. Collection plus the SPX drilldown (`SURF-09`) are the working
+surface; `SIG` strategy scanners, `STRAT`/`PORT`/`EXEC`, and a fitted SVI remain untouched.
 
 > **Status discipline.** `done` requires evidence, not just code. Every `done` row below either has a
 > measured validation in §7 or is directly exercised by a script in `scripts/`. If a change can't
@@ -228,6 +228,10 @@ Note phase 3 is further along than phase 1 or 2 — history was pulled before th
 hardened or a verifier existed. That inversion is deliberate (the tier's 2016 floor and the data's
 value made it worth grabbing early) but it means backfilled data has *not* passed a verifier.
 
+Phase 4's SPX drilldown (`scripts/run_surf09.py`) is now the working UI: liquidity-filtered term,
+skew, forwards, forward variance, IV rank, and quality on EOD + live last-snapshot. It is still
+`partial` because there is no fitted surface (`SURF-04`) and no executable bid/ask IV (`SURF-13`).
+
 ---
 
 ## 7. Feature registry
@@ -245,12 +249,12 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 | DATA-01 | ThetaData realtime full-chain snapshot (quote + ohlc + OI) | A B | 1 | `done` | 3 bulk calls/root; 39,920 rows across 9 roots in 13.8s |
 | DATA-02 | IBKR realtime narrowed chain snapshot + model greeks | A B | 1 | `done` | Nearest N expiries × M strikes; per-expiry `reqContractDetails` avoids invalid combos. Output schema now pinned, and IBKR's NaN/-1 "no data" sentinels are nulled per field — greeks keep legitimate −1 values, prices and volumes do not |
 | DATA-03 | Partitioned Parquet lake with pinned schema | A B | 1 | `done` | `_OUTPUT_SCHEMA` written every poll regardless of which endpoints answered |
-| DATA-04 | ThetaData EOD option history backfill, 2016+ | A B | 3 | `done` | Month-chunked, resumable via `_complete/` markers; `expiration=*` makes it tractable |
+| DATA-04 | ThetaData EOD option history backfill, 2016+ | A B | 3 | `done` | Month-chunked, resumable via `_complete/` markers; `expiration=*` makes it tractable. **Lake currently starts 2024-01-02** (2016 subscription floor unused by choice). SPX Sep EOD still missing 09-01/02/03/08/09; SPXW missing 08/09 |
 | DATA-05 | Compaction + change-based dedup | A | 1 | `done` | ~390 files/root/session → 1; row saving scales with illiquidity (XBI 68%, SPY 97%). **Gotcha:** a deduped file is a *change log*, not a snapshot series — to get state at time *t*, take the last row per contract at or before *t*. A scanner that naively groups by `poll_timestamp` will under-count contracts |
 | DATA-06 | Trading-session gating | A B | 1 | `done` | NYSE calendar via `pandas_market_calendars`, so holidays and 13:00 ET half-days both gate correctly. Replaced a weekday + 9:30–16:00 test that treated Labor Day as a normal session |
 | DATA-07 | Exact contract master, versioned, provider IDs | B | 1 | `todo` | B §3.3: never build chains from expiry × strike Cartesian product. Store exact contracts from definition endpoints, keyed by provider ID + canonical key |
-| DATA-08 | IBKR historical bars for underlyings | A B | 3 | `todo` | Only route to deep underlying history; ThetaData stock/index history is gated |
-| DATA-09 | Futures capture (ES, NQ, VX) + curve | B | 9 | `todo` | Required for forward construction, hedging, VIX term structure. IBKR only |
+| DATA-08 | IBKR historical bars for underlyings | A B | 3 | `done` | `scripts/run_ibkr_backfill.py`, `data/ibkr_eod/{sym}/daily.parquet`. Cash/index 2684 NYSE days 2016-01-04 → 2026-09-08 (09-09 not pulled yet). ThetaData stock/index history still gated |
+| DATA-09 | Futures capture (ES, NQ, VX) + curve | B | 9 | `partial` | Daily bars only, front-month stitch of dated contracts + ContFuture. **IBKR will not resolve 2016 expiries** (Error 200). ES 802 bars from 2023-06-20; NQ 622 from 2024-03-18; VX 401 all-hours TRADES from 2025-02-05 (RTH was 16 bars). No VX term *curve* of back months. Closes shown on `SURF-09` with those start dates labelled |
 | DATA-10 | Vol indices (VIX, VXN, VOLQ) + term measures | B | 9 | `partial` | VIX options via ThetaData; VIX spot via IBKR; VXN/VOLQ absent |
 | DATA-11 | Rates / dividend / borrow inputs | B | 4 | `partial` | Parity forward implies dividends + borrow; discount uses one flat `THETADATA_RATE` |
 | DATA-12 | Versioned event calendar (CPI, FOMC, payrolls, earnings, expiries) | B | 5 | `todo` | Exchange holidays are now handled by `DATA-06`; this is the macro/earnings calendar needed by `RV-05` and `SIG-04` |
@@ -269,13 +273,13 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 | --- | --- | --- | --- | --- | --- |
 | QUAL-01 | Per-record quality fields (source, versions, staleness, crossed flags, reason codes) | B | 2 | `partial` | Have source dir, timestamps, sizes, conditions. Missing collector/schema version, staleness, validation status, reason codes. Also: on the EOD path `ohlc_timestamp` is aliased from `quote_timestamp` and `poll_timestamp` records when the *backfill ran*, not an observation time — both are synthesized values presented in observation columns |
 | QUAL-02 | Canonical key uniqueness | B | 2 | `partial` | Dedup on join keys at ingest and in compaction; not asserted as an invariant |
-| QUAL-03 | Crossed / locked / stale quote quarantine | B | 2 | `todo` | Currently crossed quotes just fail to produce IV; they aren't isolated or reported |
+| QUAL-03 | Crossed / locked / stale quote quarantine | B | 2 | `todo` | `SURF-09` *counts* crossed quotes; they still are not isolated into a quarantine table. Currently crossed quotes also fail to produce IV |
 | QUAL-04 | No-arbitrage price-bound validation before IV solve | B | 4 | `partial` | Solver rejects prices outside the model's own range; no explicit pre-solve bound check or reporting |
 | QUAL-05 | Cross-provider reconciliation (IBKR vs internal IV/greeks) | B | 2 | `partial` | **Unblocked.** The join used to return zero rows because the two feeds formatted `expiration` differently; both now emit a `Date` holding the last trading day. 44–144 contracts per root now reconcile — see §7.2. Still needs to run as a standing report rather than on demand |
-| QUAL-06 | Put-call parity residual monitoring | B | 2 | `partial` | Measured (see §7.2); needs to become a standing report with tolerances |
+| QUAL-06 | Put-call parity residual monitoring | B | 2 | `partial` | Measured (see §7.2). `SURF-09` shows ATM |call IV − put IV| and Fwd − SPX per session. Not yet a standing report with tolerances |
 | QUAL-07 | Coverage / freshness / integrity reports + alerts | B | 2 | `todo` | B §13 acceptance measures |
 | QUAL-08 | Reproducibility: same Bronze + version → same Gold | B | 2 | `blocked` | Needs `DATA-15` first; can't reproduce a zone that doesn't exist separately |
-| QUAL-09 | Schema drift detection / alignment | B | 1 | `partial` | Both sources now pin their schema on write, and compaction aligns dtypes to the newest file. The drift already on disk stays: `data/ibkr/` has 5 variants (16 vs 17 columns, plus `underlying_price` inferred as `Null` where a poll returned none) and `data/thetadata/` has 2. No detector yet — the drift was found by hand |
+| QUAL-09 | Schema drift detection / alignment | B | 1 | `partial` | Both sources pin schema on write; compaction and `rewrite_day_to_schema` align. Live **09-08** rewritten to 44-col Date (0 corrupt). Live **09-09** still mixed 42/44 (~half); `SURF-09` aligns the last snapshot. Live **09-07** Labor Day left as 42-col and excluded from the drilldown. No automatic detector |
 | QUAL-10 | Null-as-information discipline | B | 1 | `done` | Unsolvable IV → null, never 0. NaN converted to null on write |
 | QUAL-11 | Fatal vs transient error separation | — | 1 | `done` | `fatal = True` stops the loop; transient logs and continues. Added after 403s spammed every symbol every interval |
 
@@ -283,26 +287,26 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| SURF-01 | Forward & discount inference | A B | 4 | `partial` | Spread-weighted put-call parity per (session, expiry). Futures-based cross-check pending `DATA-09` |
+| SURF-01 | Forward & discount inference | A B | 4 | `partial` | Spread-weighted put-call parity per (session, expiry). `SURF-09` plots the forward vs DTE and Fwd − SPX. Futures-based ES/SPX basis is a labelled close overlay, not a contract-matched hedge |
 | SURF-02 | IV solver | A B | 4 | `done` | Vectorized bisection on Black-76, 64 iterations; can't diverge on wide quotes |
-| SURF-03 | Greeks, 1st through 3rd order | A B | 4 | `done` | delta, gamma, vega, theta, rho, vanna, charm, speed, zomma |
-| SURF-04 | Arbitrage-aware surface fit + residuals | B | 4 | `todo` | Fit in delta or forward-moneyness space; expose residuals, weights, exclusions, stability. Raw observations preserved beside fitted values |
-| SURF-05 | Calendar & butterfly arbitrage diagnostics | B | 4 | `todo` | Enforce or at minimum diagnose |
-| SURF-06 | Liquidity filters (spread caps, size, staleness) | A B | 4 | `todo` | **Highest-value next step.** Parity gap is 0.024 vol across all pairs but 0.003 on tight-spread near-the-money — the wings need filtering before any surface fit |
-| SURF-07 | ATM term structure + forward variance | A B | 4 | `todo` | `[σ²(T₂)T₂ − σ²(T₁)T₁] / (T₂ − T₁)` |
-| SURF-08 | Skew scanner (10Δ/25Δ, RR, BF, z-scores) | A B | 4 | `todo` | Display sign convention explicitly (B App. C) |
-| SURF-09 | Single-ticker drilldown, SPX first | B | 4 | `todo` | B §5.2: the recommended first feature — forces contract master, snapshot, forwards, rates, solver, liquidity filters and quality reporting to all work |
-| SURF-10 | IV rank / historical percentiles | A B | 5 | `todo` | Unblocked by `DATA-04` (2016+ history exists) |
+| SURF-03 | Greeks, 1st through 3rd order | A B | 4 | `done` | delta, gamma, vega, theta, rho, vanna, charm, speed, zomma. Drilldown shows Δ/Γ/vega/θ plus Σ γ·OI·100 (descriptive, not a dealer-GEX model) |
+| SURF-04 | Arbitrage-aware surface fit + residuals | B | 4 | `todo` | Fit in delta or forward-moneyness space; expose residuals, weights, exclusions, stability. Raw observations preserved beside fitted values. **Not started** — drilldown is raw filtered IV |
+| SURF-05 | Calendar & butterfly arbitrage diagnostics | B | 4 | `partial` | Diagnose only, on `SURF-09`: count of σ²T calendar inversions between consecutive expiries, and count of negative 25Δ butterflies. Not enforced; no three-strike price convexity check |
+| SURF-06 | Liquidity filters (spread caps, size, staleness) | A B | 4 | `partial` | `SURF-09` default: bid>0, ask>bid, spread/mid ≤ 8%, size ≥ 1, DTE ≥ 1. Applied before term/skew/smile. **Gap:** no quote-staleness filter. 2026-08-31 EOD: 28,648 → 21,664 kept, 0 crossed |
+| SURF-07 | ATM term structure + forward variance | A B | 4 | `done` | `SURF-09`: ATM mid IV vs DTE; strips `[σ²(T₂)T₂ − σ²(T₁)T₁] / (T₂ − T₁)`. 2026-08-31: 0 calendar inversions |
+| SURF-08 | Skew scanner (10Δ/25Δ, RR, BF, z-scores) | A B | 4 | `partial` | SPX drilldown, not a universe scanner. RR = IV(put Δ) − IV(call Δ) — puts richer is positive, opposite the call−put wording in §9 (labelled on the page). BF = ½(call+put) − ATM. RR25 z-score vs 2024+ EOD. 2026-08-31 ~30d RR25 **+3.82 vol pts**, z **−0.43σ** |
+| SURF-09 | Single-ticker drilldown, SPX first | B | 4 | `done` | `python scripts/run_surf09.py` → http://127.0.0.1:8765/ . SPX+SPXW EOD and live last-snapshot. NYSE sessions only; Labor Day 09-07 live excluded. Validated 2026-08-31 EOD (90% IV solve, ATM 11.65%, PC gap 0.05%) and 2026-09-08 live. Gaps live as other IDs: no SVI (`SURF-04`), mid IV only (`SURF-13`) |
+| SURF-10 | IV rank / historical percentiles | A B | 5 | `partial` | 30d ATM percentile vs EOD 2024-01-02 through the selected session (666 cache points). Option lake does not go back to 2016. 2026-08-31 ATM at **24th** percentile |
 | SURF-11 | Surface model versioning | B | 4 | `todo` | B §5.1. OptionMatrix may be evaluated as reference, but diagnostics matter more than adopting a library early |
 | SURF-12 | Market cockpit (cross-asset regime) | A B | 5 | `todo` | Curves, events, breadth, quality status |
-| SURF-13 | Bid / mid / ask surfaces — executable IV | B | 4 | `partial` | Mid only today. B §1.3: "mid-price alone is not a strategy" — see [D-07](#d-07--executable-iv-vs-mid-price) |
+| SURF-13 | Bid / mid / ask surfaces — executable IV | B | 4 | `partial` | Mid only today. Lake does not store bid/ask IV; solver would have to be re-run on each side. B §1.3: "mid-price alone is not a strategy" — see [D-07](#d-07--executable-iv-vs-mid-price) |
 | SURF-14 | Cross-sectional vol screening | A | 5 | `todo` | A's Moontower-parity item: rank the universe on one surface metric |
 
 ### RV — realized volatility
 
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RV-01 | Close-to-close realized vol | A B | 5 | `todo` | Needs `DATA-08`; parity forward is a usable stopgap underlying back to 2016 |
+| RV-01 | Close-to-close realized vol | A B | 5 | `partial` | `SURF-09` shows 20d (and uses 60d internally) close-to-close SPX RV from `DATA-08`, 252-scaled. SPX only; not Parkinson/GK; not a forecast |
 | RV-02 | Parkinson / Garman–Klass estimators | B | 5 | `todo` | High-low and open-close information |
 | RV-03 | Intraday vs overnight decomposition | B | 5 | `todo` | Required where trading logic is session-dependent |
 | RV-04 | RV forecast with uncertainty | B | 5 | `todo` | B insists on a forecast *distribution*, not a point estimate |
@@ -312,7 +316,7 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| SIG-01 | VRP scanner | A B | 5 | `todo` | Research label: implied variance − subsequent realized. For trading, replace with point-in-time forecast distribution incl. jump and execution uncertainty |
+| SIG-01 | VRP scanner | A B | 5 | `todo` | Research label: implied variance − subsequent realized. `SURF-09` shows ATM² − RV20² as a **labelled variance gap**, not this scanner and not a forecast |
 | SIG-02 | Relative-value lab (SPX–NDX, SPY–QQQ, VIX–VXN–VOLQ) | A B | 6 | `todo` | Surface spreads, hedge ratios, residual z-scores, convergence history |
 | SIG-03 | Tail hedge selector / crisis convexity ratio | B | 6 | `todo` | Scenario package value ÷ executable premium, with scenario definition, elapsed time, surface response, probability |
 | SIG-04 | Event vol module (expected move, crush, analogs) | A B | 9 | `todo` | A's "earnings vol suite" folds in here |
@@ -380,7 +384,7 @@ with trade ideas hides the data quality they depend on.
 | --- | --- | --- | --- | --- | --- |
 | UI-01 | System health panel | B | 2 | `todo` | Sources, timestamp lag, chain coverage, invalid/crossed quotes, delayed/live status |
 | UI-02 | Portfolio risk panel | B | 7 | `todo` | Stress P&L, greeks, drawdown, liquidity, upcoming event exposure |
-| UI-03 | Market regime panel | B | 5 | `todo` | Realized/implied levels, curves, skew, cross-index, macro events |
+| UI-03 | Market regime panel | B | 5 | `partial` | Slice lives on `SURF-09`: IV rank, 20d RV, RR z-score, SPX path, labelled ES/NQ/VX closes. No events, no cross-index breadth |
 | UI-04 | Opportunity set | B | 6 | `todo` | Ranked hypotheses with confidence, capacity, expected edge, failure conditions |
 | UI-05 | Trade detail + approval checklist | B | 6 | `todo` | Scenario cube, executable package, costs, sizing |
 
@@ -458,15 +462,15 @@ B Appendix A, extended with an availability column reflecting §4.
 
 | Feature | Chain | Underlying | Rates/divs | Futures/vol idx | Events/history | Available now? |
 | --- | --- | --- | --- | --- | --- | --- |
-| Surface / skew | required | required | required | helpful | percentiles | **yes** — underlying via parity |
+| Surface / skew | required | required | required | helpful | percentiles | **yes** — `SURF-09` on SPX+SPXW |
 | Term / forwards | required | required | required | helpful | curves | **yes** |
-| Realized vol | no | required | no | helpful | required | partial — needs `DATA-08`/`DATA-13` |
-| VRP scanner | required | required | required | helpful | required | partial — blocked on RV |
-| Tail selector | required | required | required | **required** | crisis history | no — needs `DATA-09`; 2016 floor excludes GFC |
-| Event vol | required | required | required | helpful | calendar/analogs | no — needs `DATA-12` |
-| Cross-index RV | both | both | required | required | required | partial — chains yes, futures no |
+| Realized vol | no | required | no | helpful | required | **partial** — close-to-close SPX via `DATA-08`; no `DATA-13` |
+| VRP scanner | required | required | required | helpful | required | no — labelled ATM²−RV² only, not `SIG-01` |
+| Tail selector | required | required | required | **required** | crisis history | no — needs `DATA-09` curve + GFC; 2016 floor excludes GFC |
+| Event vol | required | required | required | helpful | calendar/analogs | no — needs `DATA-12` (no calendar file in repo) |
+| Cross-index RV | both | both | required | required | required | partial — chains yes; ES/NQ/VX dailies short and labelled |
 | Collar anomaly | required | required | + divs/borrow | helpful | corporate actions | no |
-| Dealer proxies | required + OI | required | required | helpful | historical OI | **chain data yes** — OI captured; deferred on governance |
+| Dealer proxies | required + OI | required | required | helpful | historical OI | **chain data yes** — OI captured; `SURF-09` shows Σγ·OI·100; deferred as a dealer model on governance |
 | Dispersion | index + constituents | all constituents | required | helpful | weights/actions | no |
 
 ---
@@ -571,3 +575,4 @@ liquidity, and costs.
 | 2026-09-05 | Combined A and B into this document. Established the 93-feature registry, recorded measured data-availability constraints (§4), and opened decisions D-01…D-09. Status reflects a working ThetaData realtime + 2016-onward EOD pipeline with locally solved surface. |
 | 2026-09-07 | Replaced the weekday-plus-fixed-hours session test with the NYSE exchange calendar, closing `DATA-06`. Caught because the old test reported Labor Day as open, which would have written a full day of stale quotes to `dt=2026-09-07`. Half-day closes are now handled too. |
 | 2026-09-08 | Audited `data/`. Canonicalized `expiration` to a typed `Date` in both sources and rolled IBKR's legacy Saturday expiry back to the last trading day, which unblocked `QUAL-05` — the cross-provider join previously matched zero contracts. Pinned the IBKR output schema and nulled its NaN/-1 sentinels. Verified the Date change is behavior-preserving across all 113,806 stored EOD rows. Downgraded `DATA-19` (snapshots are not synchronized). Recorded that on-disk realtime data is stale and must be re-collected. |
+| 2026-09-18 | Landed `SURF-09` (`scripts/run_surf09.py`). Closed `DATA-08` and `SURF-07`; moved `DATA-09`, `SURF-05/06/08/10`, `RV-01`, `UI-03` to `partial`. Option EOD lake still starts 2024-01-02. IBKR expired futures before ~2024/2025 Error 200. Live 09-07 excluded; 09-08 normalized; 09-09 mixed schema aligned at last snapshot. Totals 15 done · 19 partial · 53 todo · 5 deferred · 1 blocked. |
