@@ -28,9 +28,10 @@ end of their group; never renumber.
 | `deferred` | Deliberately postponed — reason recorded, usually a dependency or model-governance concern. |
 | `blocked` | Cannot proceed; external constraint (subscription tier, missing feed). |
 
-Current totals across 93 tracked features: **15 done · 19 partial · 53 todo · 5 deferred · 1 blocked**.
-That is 16% complete by count. Collection plus the SPX drilldown (`SURF-09`) are the working
-surface; `SIG` strategy scanners, `STRAT`/`PORT`/`EXEC`, and a fitted SVI remain untouched.
+Current totals across 93 tracked features: **21 done · 23 partial · 43 todo · 5 deferred · 1 blocked**.
+That is 23% complete by count. Collection plus the SPX drilldown (`SURF-09`) are the working
+surface; `STRAT`/`PORT`/`EXEC`, event calendars, ticks, and a fitted SVI remain out of scope for
+this pass.
 
 > **Status discipline.** `done` requires evidence, not just code. Every `done` row below either has a
 > measured validation in §7 or is directly exercised by a script in `scripts/`. If a change can't
@@ -215,7 +216,7 @@ forward estimate contaminates every downstream feature.
 | **2** | Verifier & Silver: dedupe, staleness, quote bounds, cross-provider checks, quarantine | Replayable canonical chain snapshots | — | 2 | `todo` |
 | **3** | Historical backfill: ThetaData EOD 2016+, IBKR underlying bars | Point-in-time history in the same schema | 2 | (1) | `partial` |
 | **4** | SPX drilldown: forward, IV solver, surface, term, skew, liquidity & quality panels | Independent parity/IV checks, stable daily output | 3 | 3 | `partial` |
-| **5** | RV & VRP: realized-vol suite, forecasts, percentiles, event/session decomposition | Point-in-time features with validation report | 3 | 4 | `todo` |
+| **5** | RV & VRP: realized-vol suite, forecasts, percentiles, event/session decomposition | Point-in-time features with validation report | 3 | 4 | `partial` |
 | **6** | Strategy lab: structure ranker, scenarios, costs, backtester, attribution | First hypotheses accepted/rejected out of sample | 4 | 5 | `todo` |
 | **7** | Portfolio cockpit: books, aggregate greeks, stresses, limits, research ledger | Paper portfolio under governance | — | 6 | `todo` |
 | **8** | Execution pilot: IBKR combos, order controls, reconciliation, small capital | Live results reconcile, stay within limits | — | 7 | `todo` |
@@ -228,9 +229,10 @@ Note phase 3 is further along than phase 1 or 2 — history was pulled before th
 hardened or a verifier existed. That inversion is deliberate (the tier's 2016 floor and the data's
 value made it worth grabbing early) but it means backfilled data has *not* passed a verifier.
 
-Phase 4's SPX drilldown (`scripts/run_surf09.py`) is now the working UI: liquidity-filtered term,
-skew, forwards, forward variance, IV rank, and quality on EOD + live last-snapshot. It is still
-`partial` because there is no fitted surface (`SURF-04`) and no executable bid/ask IV (`SURF-13`).
+Phase 4's SPX drilldown (`scripts/run_surf09.py`) is the working UI: liquidity-filtered term,
+skew, forwards, forward variance, bid/ask IV, quad-k fit, IV rank, RV suite, research VRP,
+cross-root ATM, and health/quarantine on EOD + live last-snapshot. It is still `partial` on
+the phase exit criterion because there is no SVI (`SURF-04` remaining) and no event calendar.
 
 ---
 
@@ -272,12 +274,12 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
 | QUAL-01 | Per-record quality fields (source, versions, staleness, crossed flags, reason codes) | B | 2 | `partial` | Have source dir, timestamps, sizes, conditions. Missing collector/schema version, staleness, validation status, reason codes. Also: on the EOD path `ohlc_timestamp` is aliased from `quote_timestamp` and `poll_timestamp` records when the *backfill ran*, not an observation time — both are synthesized values presented in observation columns |
-| QUAL-02 | Canonical key uniqueness | B | 2 | `partial` | Dedup on join keys at ingest and in compaction; not asserted as an invariant |
-| QUAL-03 | Crossed / locked / stale quote quarantine | B | 2 | `todo` | `SURF-09` *counts* crossed quotes; they still are not isolated into a quarantine table. Currently crossed quotes also fail to produce IV |
-| QUAL-04 | No-arbitrage price-bound validation before IV solve | B | 4 | `partial` | Solver rejects prices outside the model's own range; no explicit pre-solve bound check or reporting |
+| QUAL-02 | Canonical key uniqueness | B | 2 | `partial` | Dedup on join keys at ingest and in compaction. `SURF-09` counts duplicate (root, expiry, strike, right) keys per snapshot (0 on 2026-08-31 EOD). Not asserted as a write-time invariant |
+| QUAL-03 | Crossed / locked / stale quote quarantine | B | 2 | `partial` | `SURF-09` isolates crossed quotes into a quarantine *view* (first 40 rows). Not a persisted Silver quarantine table. Live quotes older than the stale-sec control are dropped from the surface, not stored separately |
+| QUAL-04 | No-arbitrage price-bound validation before IV solve | B | 4 | `partial` | Solver still rejects out-of-range prices. `SURF-09` now *counts* mids outside Black-76 intrinsic/upper ±0.05: **905 / 28,648** on 2026-08-31 EOD. Not a pre-solve gate |
 | QUAL-05 | Cross-provider reconciliation (IBKR vs internal IV/greeks) | B | 2 | `partial` | **Unblocked.** The join used to return zero rows because the two feeds formatted `expiration` differently; both now emit a `Date` holding the last trading day. 44–144 contracts per root now reconcile — see §7.2. Still needs to run as a standing report rather than on demand |
 | QUAL-06 | Put-call parity residual monitoring | B | 2 | `partial` | Measured (see §7.2). `SURF-09` shows ATM |call IV − put IV| and Fwd − SPX per session. Not yet a standing report with tolerances |
-| QUAL-07 | Coverage / freshness / integrity reports + alerts | B | 2 | `todo` | B §13 acceptance measures |
+| QUAL-07 | Coverage / freshness / integrity reports + alerts | B | 2 | `partial` | Health panel on `SURF-09`: EOD/live session counts, schema mix, missing last-20 NYSE EOD, dups, crossed, bound flags, stale drops. No pager/alerts |
 | QUAL-08 | Reproducibility: same Bronze + version → same Gold | B | 2 | `blocked` | Needs `DATA-15` first; can't reproduce a zone that doesn't exist separately |
 | QUAL-09 | Schema drift detection / alignment | B | 1 | `partial` | Both sources pin schema on write; compaction and `rewrite_day_to_schema` align. Live **09-08** rewritten to 44-col Date (0 corrupt). Live **09-09** still mixed 42/44 (~half); `SURF-09` aligns the last snapshot. Live **09-07** Labor Day left as 42-col and excluded from the drilldown. No automatic detector |
 | QUAL-10 | Null-as-information discipline | B | 1 | `done` | Unsolvable IV → null, never 0. NaN converted to null on write |
@@ -290,25 +292,25 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 | SURF-01 | Forward & discount inference | A B | 4 | `partial` | Spread-weighted put-call parity per (session, expiry). `SURF-09` plots the forward vs DTE and Fwd − SPX. Futures-based ES/SPX basis is a labelled close overlay, not a contract-matched hedge |
 | SURF-02 | IV solver | A B | 4 | `done` | Vectorized bisection on Black-76, 64 iterations; can't diverge on wide quotes |
 | SURF-03 | Greeks, 1st through 3rd order | A B | 4 | `done` | delta, gamma, vega, theta, rho, vanna, charm, speed, zomma. Drilldown shows Δ/Γ/vega/θ plus Σ γ·OI·100 (descriptive, not a dealer-GEX model) |
-| SURF-04 | Arbitrage-aware surface fit + residuals | B | 4 | `todo` | Fit in delta or forward-moneyness space; expose residuals, weights, exclusions, stability. Raw observations preserved beside fitted values. **Not started** — drilldown is raw filtered IV |
-| SURF-05 | Calendar & butterfly arbitrage diagnostics | B | 4 | `partial` | Diagnose only, on `SURF-09`: count of σ²T calendar inversions between consecutive expiries, and count of negative 25Δ butterflies. Not enforced; no three-strike price convexity check |
-| SURF-06 | Liquidity filters (spread caps, size, staleness) | A B | 4 | `partial` | `SURF-09` default: bid>0, ask>bid, spread/mid ≤ 8%, size ≥ 1, DTE ≥ 1. Applied before term/skew/smile. **Gap:** no quote-staleness filter. 2026-08-31 EOD: 28,648 → 21,664 kept, 0 crossed |
+| SURF-04 | Arbitrage-aware surface fit + residuals | B | 4 | `partial` | `quad-k v1` on `SURF-09`: spread-weighted quadratic total variance in log-moneyness, RMSE + residual plot. Not SVI, not calendar-arbitrage constrained. Raw IV kept beside the fit |
+| SURF-05 | Calendar & butterfly arbitrage diagnostics | B | 4 | `done` | Diagnose only, on `SURF-09`: σ²T calendar inversions, negative 25Δ BF, and three-strike call mid convexity per (root, expiry). 2026-08-31: **0** inversions, **0** neg BF25, **399** convexity flags after per-root grouping. Not enforced |
+| SURF-06 | Liquidity filters (spread caps, size, staleness) | A B | 4 | `partial` | `SURF-09` default: bid>0, ask>bid, spread/mid ≤ 8%, size ≥ 1, DTE ≥ 1. Live: quote age ≤ 120s (form control). EOD `quote_timestamp` is aliased, so staleness is skipped on EOD. 2026-08-31: 28,648 → 21,664 kept, 0 crossed |
 | SURF-07 | ATM term structure + forward variance | A B | 4 | `done` | `SURF-09`: ATM mid IV vs DTE; strips `[σ²(T₂)T₂ − σ²(T₁)T₁] / (T₂ − T₁)`. 2026-08-31: 0 calendar inversions |
-| SURF-08 | Skew scanner (10Δ/25Δ, RR, BF, z-scores) | A B | 4 | `partial` | SPX drilldown, not a universe scanner. RR = IV(put Δ) − IV(call Δ) — puts richer is positive, opposite the call−put wording in §9 (labelled on the page). BF = ½(call+put) − ATM. RR25 z-score vs 2024+ EOD. 2026-08-31 ~30d RR25 **+3.82 vol pts**, z **−0.43σ** |
-| SURF-09 | Single-ticker drilldown, SPX first | B | 4 | `done` | `python scripts/run_surf09.py` → http://127.0.0.1:8765/ . SPX+SPXW EOD and live last-snapshot. NYSE sessions only; Labor Day 09-07 live excluded. Validated 2026-08-31 EOD (90% IV solve, ATM 11.65%, PC gap 0.05%) and 2026-09-08 live. Gaps live as other IDs: no SVI (`SURF-04`), mid IV only (`SURF-13`) |
+| SURF-08 | Skew scanner (10Δ/25Δ, RR, BF, z-scores) | A B | 4 | `partial` | SPX drilldown + ~30d watchlist, not a universe scanner. RR = IV(put Δ) − IV(call Δ). BF = ½(call+put) − ATM. RR25 z-score vs 2024+ EOD. 2026-08-31 ~30d RR25 **+3.82 vol pts**, z **−0.43σ** |
+| SURF-09 | Single-ticker drilldown, SPX first | B | 4 | `done` | `python scripts/run_surf09.py` — EOD or live point-in-time snapshot. Paired CE/PE chain with IV/greeks/OI, descriptive GEX (γ×OI×100), OI walls, PCR, max pain. Validated 2026-08-31 EOD (90% IV solve, ATM 11.65%, PC gap 0.05%, IV rank 24%). Remaining gaps live as other IDs |
 | SURF-10 | IV rank / historical percentiles | A B | 5 | `partial` | 30d ATM percentile vs EOD 2024-01-02 through the selected session (666 cache points). Option lake does not go back to 2016. 2026-08-31 ATM at **24th** percentile |
 | SURF-11 | Surface model versioning | B | 4 | `todo` | B §5.1. OptionMatrix may be evaluated as reference, but diagnostics matter more than adopting a library early |
-| SURF-12 | Market cockpit (cross-asset regime) | A B | 5 | `todo` | Curves, events, breadth, quality status |
-| SURF-13 | Bid / mid / ask surfaces — executable IV | B | 4 | `partial` | Mid only today. Lake does not store bid/ask IV; solver would have to be re-run on each side. B §1.3: "mid-price alone is not a strategy" — see [D-07](#d-07--executable-iv-vs-mid-price) |
-| SURF-14 | Cross-sectional vol screening | A | 5 | `todo` | A's Moontower-parity item: rank the universe on one surface metric |
+| SURF-12 | Market cockpit (cross-asset regime) | A B | 5 | `partial` | On `SURF-09`: IV rank, RR z, close/Parkinson/GK/overnight RV, ES/NQ/VX/VIX closes, cross-root ATM. No event calendar, no VXN/VOLQ |
+| SURF-13 | Bid / mid / ask surfaces — executable IV | B | 4 | `done` | Selected-expiry smile re-solves Black-76 on bid and ask using stored forward/discount. Lake still stores mid IV only. Chain table shows IV / IV bid / IV ask |
+| SURF-14 | Cross-sectional vol screening | A | 5 | `done` | EOD same-session 30d ATM + RR25 for SPX, SPXW, NDX, SPY, QQQ, IWM, VIX when those partitions exist. Ranked cheap→rich. Not a live scanner |
 
 ### RV — realized volatility
 
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| RV-01 | Close-to-close realized vol | A B | 5 | `partial` | `SURF-09` shows 20d (and uses 60d internally) close-to-close SPX RV from `DATA-08`, 252-scaled. SPX only; not Parkinson/GK; not a forecast |
-| RV-02 | Parkinson / Garman–Klass estimators | B | 5 | `todo` | High-low and open-close information |
-| RV-03 | Intraday vs overnight decomposition | B | 5 | `todo` | Required where trading logic is session-dependent |
+| RV-01 | Close-to-close realized vol | A B | 5 | `done` | `SURF-09` 20d and 60d close-to-close, 252-scaled, from `DATA-08`. 2026-08-31 SPX **9.27% / 13.58%**. NDX 20d used for the SPX–NDX RV spread when bars exist. Not a forecast |
+| RV-02 | Parkinson / Garman–Klass estimators | B | 5 | `done` | SPX OHLC, 20d, 252-scaled. 2026-08-31 Parkinson **6.54%**, GK **6.32%** |
+| RV-03 | Intraday vs overnight decomposition | B | 5 | `partial` | Daily OHLC close-to-open vs open-to-close, 20d. 2026-08-31 overnight **4.73%**, RTH **7.08%**. Not tick-level (`DATA-13`) |
 | RV-04 | RV forecast with uncertainty | B | 5 | `todo` | B insists on a forecast *distribution*, not a point estimate |
 | RV-05 | Event vs non-event variance decomposition | B | 5 | `todo` | Needs `DATA-12` |
 
@@ -316,12 +318,12 @@ risk · `EXEC` execution & operations · `GOV` governance · `UI` dashboards
 
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| SIG-01 | VRP scanner | A B | 5 | `todo` | Research label: implied variance − subsequent realized. `SURF-09` shows ATM² − RV20² as a **labelled variance gap**, not this scanner and not a forecast |
-| SIG-02 | Relative-value lab (SPX–NDX, SPY–QQQ, VIX–VXN–VOLQ) | A B | 6 | `todo` | Surface spreads, hedge ratios, residual z-scores, convergence history |
+| SIG-01 | VRP scanner | A B | 5 | `partial` | Research series: ATM² − *subsequent* 20-session close-to-close variance, plus trailing ATM²−RV20² labelled as a variance gap. Not a forecast, not a universe scanner, not cost-adjusted |
+| SIG-02 | Relative-value lab (SPX–NDX, SPY–QQQ, VIX–VXN–VOLQ) | A B | 6 | `partial` | Same-session 30d ATM spreads (NDX−SPX, QQQ−SPY) and 20d close-to-close RV spread. No hedge ratios, no VXN/VOLQ, no z-score history |
 | SIG-03 | Tail hedge selector / crisis convexity ratio | B | 6 | `todo` | Scenario package value ÷ executable premium, with scenario definition, elapsed time, surface response, probability |
 | SIG-04 | Event vol module (expected move, crush, analogs) | A B | 9 | `todo` | A's "earnings vol suite" folds in here |
 | SIG-05 | Signal stability across sampling times & parameters | B | 6 | `todo` | A platform KPI, not an afterthought |
-| SIG-06 | Dealer positioning proxies (GEX / vanna / charm) | A B | 9 | `deferred` | **Direct conflict** — A core, B deferred. See [D-02](#d-02--dealer-positioning) |
+| SIG-06 | Dealer positioning proxies (GEX / vanna / charm) | A B | 9 | `deferred` | **Direct conflict** — A core, B deferred. See [D-02](#d-02--dealer-positioning). `SURF-09` now shows a **labelled descriptive GEX** (γ×OI×100, call−put, OI walls, flip, max pain) on EOD or a chosen live snapshot. Still not a dealer-inventory signal |
 | SIG-07 | Dispersion / correlation (index vs constituents) | B | 9 | `deferred` | Needs single-name surfaces + weight history |
 | SIG-08 | Collar / financing anomaly detection | B | 9 | `deferred` | B explicitly defers the MU collar anomaly; needs dividends + borrow |
 | SIG-09 | Income module (covered calls, cash-secured puts) | B | 9 | `deferred` | Assignment-aware return decomposition |
@@ -382,9 +384,9 @@ with trade ideas hides the data quality they depend on.
 
 | ID | Feature | Src | Ph | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| UI-01 | System health panel | B | 2 | `todo` | Sources, timestamp lag, chain coverage, invalid/crossed quotes, delayed/live status |
+| UI-01 | System health panel | B | 2 | `done` | Leads `SURF-09`: EOD/live coverage, schema, missing sessions, dups, crossed, bound flags, stale drops, row counts |
 | UI-02 | Portfolio risk panel | B | 7 | `todo` | Stress P&L, greeks, drawdown, liquidity, upcoming event exposure |
-| UI-03 | Market regime panel | B | 5 | `partial` | Slice lives on `SURF-09`: IV rank, 20d RV, RR z-score, SPX path, labelled ES/NQ/VX closes. No events, no cross-index breadth |
+| UI-03 | Market regime panel | B | 5 | `partial` | IV rank, RR z, close/Parkinson/GK/overnight RV, SPX path, ES/NQ/VX/VIX closes, cross-root ATM. No events |
 | UI-04 | Opportunity set | B | 6 | `todo` | Ranked hypotheses with confidence, capacity, expected edge, failure conditions |
 | UI-05 | Trade detail + approval checklist | B | 6 | `todo` | Scenario cube, executable package, costs, sizing |
 
@@ -576,3 +578,5 @@ liquidity, and costs.
 | 2026-09-07 | Replaced the weekday-plus-fixed-hours session test with the NYSE exchange calendar, closing `DATA-06`. Caught because the old test reported Labor Day as open, which would have written a full day of stale quotes to `dt=2026-09-07`. Half-day closes are now handled too. |
 | 2026-09-08 | Audited `data/`. Canonicalized `expiration` to a typed `Date` in both sources and rolled IBKR's legacy Saturday expiry back to the last trading day, which unblocked `QUAL-05` — the cross-provider join previously matched zero contracts. Pinned the IBKR output schema and nulled its NaN/-1 sentinels. Verified the Date change is behavior-preserving across all 113,806 stored EOD rows. Downgraded `DATA-19` (snapshots are not synchronized). Recorded that on-disk realtime data is stale and must be re-collected. |
 | 2026-09-18 | Landed `SURF-09` (`scripts/run_surf09.py`). Closed `DATA-08` and `SURF-07`; moved `DATA-09`, `SURF-05/06/08/10`, `RV-01`, `UI-03` to `partial`. Option EOD lake still starts 2024-01-02. IBKR expired futures before ~2024/2025 Error 200. Live 09-07 excluded; 09-08 normalized; 09-09 mixed schema aligned at last snapshot. Totals 15 done · 19 partial · 53 todo · 5 deferred · 1 blocked. |
+| 2026-09-18 | Expanded `SURF-09` with every unblocked registry item the lake can support: bid/ask IV (`SURF-13`), quad-k fit (`SURF-04` partial), calendar + per-root three-strike convexity (`SURF-05`), live staleness, health/quarantine (`QUAL-03/07`, `UI-01`), Parkinson/GK (`RV-02`), overnight/RTH RV (`RV-03` partial), research subsequent VRP (`SIG-01` partial), cross-root ATM (`SURF-14`) and SPX–NDX / SPY–QQQ spreads (`SIG-02` partial). Validated 2026-08-31 EOD on http://127.0.0.1:8767/ : 90% IV, ATM 11.65%, IV rank 24%, RR25 +3.82, 0 inversions, 399 convexity flags, Parkinson 6.54%, GK 6.32%, overnight 4.73%, RTH 7.08%, VIX 14.92. Not built: events, ticks, SVI, STRAT/PORT/EXEC, SIG-06..10. Totals 21 done · 23 partial · 43 todo · 5 deferred · 1 blocked. |
+| 2026-09-28 | Paired CE/PE chain + descriptive GEX/OI/max pain on `SURF-09`, readable from EOD or a chosen live `HHMMSS` snapshot (point-in-time). GEX = γ×OI×100, net = call−put, labelled not a dealer model. `SIG-06` stays `deferred`. JSON API on the same process: `/api/meta`, `/api/chain`, `/api/gex`, `/api/tools`. |

@@ -70,6 +70,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import polars as pl
 import requests
+from requests.adapters import HTTPAdapter
 from scipy.special import ndtr
 
 from ..config import Instrument
@@ -175,10 +176,28 @@ class ThetaPermissionError(ThetaDataError):
     fatal = True
 
 
+# One keep-alive connection to the local Terminal. requests.get() opens a new
+# TCP socket per call and abandons it in TIME_WAIT; a poll cycle is three calls
+# per root, which burns ephemeral ports and then fails with WinError 10048 once
+# Windows has none left.
+_SESSION: requests.Session | None = None
+
+
+def _session() -> requests.Session:
+    global _SESSION
+    if _SESSION is None:
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1, max_retries=0)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        _SESSION = session
+    return _SESSION
+
+
 def _get_csv(base_url: str, path: str, params: dict[str, Any], timeout: int) -> pl.DataFrame:
     url = f"{base_url}{path}"
     try:
-        resp = requests.get(url, params={**params, "format": "csv"}, timeout=timeout)
+        resp = _session().get(url, params={**params, "format": "csv"}, timeout=timeout)
     except requests.RequestException as exc:
         raise ThetaDataError(f"{path}: {exc}") from exc
 
